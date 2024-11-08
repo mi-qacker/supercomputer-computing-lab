@@ -9,7 +9,7 @@ CXXFLAGS = -Wall -Wextra
 SRCS = src/main.cpp
 
 # Правило по умолчанию
-all: $(TARGET)
+all: clean $(TARGET)
 
 # Правило компиляции
 $(TARGET): $(SRCS)
