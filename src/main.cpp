@@ -2,8 +2,10 @@
 #include <fstream>
 #include <vector>
 #include <iomanip>
+#include <chrono>
 
 using namespace std;
+using namespace std::chrono;
 
 int main()
 {
@@ -23,6 +25,9 @@ int main()
   cin >> Tl;
   cout << "Введите температуру на границе х=L, Tr: ";
   cin >> Tr;
+
+  // Запоминаем начало времени
+  auto start = high_resolution_clock::now();
 
   // Определяем расчетный шаг сетки по пространственной координате
   double h = L / (N - 1);
@@ -70,6 +75,11 @@ int main()
     }
   }
 
+  // Запоминаем конец времени
+  auto end = high_resolution_clock::now();
+  // Вычисляем время выполнения
+  auto duration = duration_cast<milliseconds>(end - start);
+
   // Вывод результата в файл
   ofstream f("res.txt");
   f << fixed << setprecision(4);
@@ -84,6 +94,7 @@ int main()
   f << "Результат получен с шагом по координате h = " << h << endl;
   f << "Результат получен с шагом по времени tau = " << tau << endl;
   f << "Температурное поле в момент времени t = " << t_end << endl;
+  f << "Время выполнения: " << duration.count() << " миллисекунд." << endl;
   f.close();
 
   // Ввод температуры в отдельный файл
