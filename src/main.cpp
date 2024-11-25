@@ -7,24 +7,25 @@
 using namespace std;
 using namespace std::chrono;
 
+const int N = 10000;
+const int N_T = 10000;
+const double LAMBDA = 46;
+const double RHO = 7800;
+const double C = 460;
+
 int main()
 {
-  const int N = 100;
-  const double LAMBDA = 46;
-  const double RHO = 7800;
-  const double C = 460;
-  double t_end, L, T0, Tl, Tr;
+  // окончание по времени
+  double t_end = 60;
+  // толщина пластины
+  double L = 0.1;
+  // начальная температура
+  double T0 = 20;
+  // температуру на границе х=0
+  double Tl = 300;
+  // температуру на границе х=L
+  double Tr = 100;
   vector<double> T, alfa, beta;
-  cout << "Введите окончание по времени, t_end: ";
-  cin >> t_end;
-  cout << "Введите толщину пластины, L: ";
-  cin >> L;
-  cout << "Введите начальную температуру, T0: ";
-  cin >> T0;
-  cout << "Введите температуру на границе х=0, Tl: ";
-  cin >> Tl;
-  cout << "Введите температуру на границе х=L, Tr: ";
-  cin >> Tr;
 
   // Запоминаем начало времени
   auto start = high_resolution_clock::now();
@@ -32,7 +33,11 @@ int main()
   // Определяем расчетный шаг сетки по пространственной координате
   double h = L / (N - 1);
   // Определяем расчетный шаг сетки по времени
-  double tau = t_end / 100.0;
+  double tau = t_end / N_T;
+
+  double ai = LAMBDA / (h * h);
+  double bi = 2.0 * LAMBDA / (h * h) + RHO * C / tau;
+  double ci = LAMBDA / (h * h);
 
   // Определяем поле температуры в начальный момент времени
   T.resize(N);
@@ -56,9 +61,6 @@ int main()
     // Цикл для определения прогоночных коэффициентов
     for (int i = 1; i < N - 1; ++i)
     {
-      double ai = LAMBDA / (h * h);
-      double bi = 2.0 * LAMBDA / (h * h) + RHO * C / tau;
-      double ci = LAMBDA / (h * h);
       double fi = -RHO * C * T[i] / tau;
 
       alfa[i] = ai / (bi - ci * alfa[i - 1]);
@@ -97,6 +99,7 @@ int main()
   f << "Время выполнения: " << duration.count() << " миллисекунд." << endl;
   f.close();
 
+  /*
   // Ввод температуры в отдельный файл
   ofstream g("tempr.txt");
   g << fixed << setprecision(3);
@@ -106,5 +109,6 @@ int main()
     g << h * i << " " << setw(8) << setprecision(5) << T[i] << endl;
   }
   g.close();
+  */
   return 0;
 }
