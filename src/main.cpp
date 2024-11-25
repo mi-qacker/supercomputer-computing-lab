@@ -3,18 +3,19 @@
 #include <vector>
 #include <iomanip>
 #include <chrono>
+#include <thread>
 
 using namespace std;
 using namespace std::chrono;
 
-const int N = 10000;
-const int N_T = 10000;
-const double LAMBDA = 46;
-const double RHO = 7800;
-const double C = 460;
-
 int main()
 {
+  const int N = 10000;
+  const int N_T = 10000;
+  const double LAMBDA = 46;
+  const double RHO = 7800;
+  const double C = 460;
+
   // окончание по времени
   double t_end = 60;
   // толщина пластины
@@ -25,10 +26,12 @@ int main()
   double Tl = 300;
   // температуру на границе х=L
   double Tr = 100;
-  vector<double> T, alfa, beta;
+  vector<double> T;
 
   // Запоминаем начало времени
   auto start = high_resolution_clock::now();
+  // Определяем количество доступных потоков
+  int num_threads = std::thread::hardware_concurrency();
 
   // Определяем расчетный шаг сетки по пространственной координате
   double h = L / (N - 1);
@@ -47,40 +50,63 @@ int main()
   }
 
   // Проводим интегрирование
-  double time = 0;
-  while (time < t_end)
+  auto compute_temperature = [&](int start, int end)
   {
-    time += tau;
-
-    // Начальные прогоночные коэффициенты
+    vector<double> alfa, beta;
     alfa.resize(N);
     beta.resize(N);
-    alfa[0] = 0.0;
-    beta[0] = Tl;
 
-    // Цикл для определения прогоночных коэффициентов
-    for (int i = 1; i < N - 1; ++i)
+    double time = start;
+    while (time < end)
     {
-      double fi = -RHO * C * T[i] / tau;
+      time += tau;
 
-      alfa[i] = ai / (bi - ci * alfa[i - 1]);
-      beta[i] = (ci * beta[i - 1] - fi) / (bi - ci * alfa[i - 1]);
+      // Начальные прогоночные коэффициенты
+      alfa[0] = 0.0;
+      beta[0] = Tl;
+
+      // Цикл для определения прогоночных коэффициентов
+      for (int i = 1; i < N - 1; ++i)
+      {
+        double fi = -RHO * C * T[i] / tau;
+
+        alfa[i] = ai / (bi - ci * alfa[i - 1]);
+        beta[i] = (ci * beta[i - 1] - fi) / (bi - ci * alfa[i - 1]);
+      }
+
+      // Значение температуры на правой границе
+      T[N - 1] = Tr;
+
+      // Определяем поле температуры
+      for (int i = N - 2; i >= 0; --i)
+      {
+        T[i] = alfa[i] * T[i + 1] + beta[i];
+      }
     }
+  };
 
-    // Значение температуры на правой границе
-    T[N - 1] = Tr;
+  std::vector<std::thread> threads;
+  int chunk_size = (t_end) / num_threads; // Размер чанка для потоков
 
-    // Определяем поле температуры
-    for (int i = N - 2; i >= 0; --i)
-    {
-      T[i] = alfa[i] * T[i + 1] + beta[i];
-    }
+  for (int i = 0; i < num_threads; ++i)
+  {
+    int start = i * chunk_size + 1;
+    int end = (i == num_threads - 1) ? t_end : start + chunk_size;
+    threads.emplace_back(compute_temperature, start, end);
   }
+
+  // Ожидаем завершения всех потоков
+  for (auto &t : threads)
+  {
+    t.join();
+  }
+  // threads.clear(); // очищаем массив потоков
 
   // Запоминаем конец времени
   auto end = high_resolution_clock::now();
   // Вычисляем время выполнения
   auto duration = duration_cast<milliseconds>(end - start);
+  cout << duration.count() << endl;
 
   // Вывод результата в файл
   ofstream f("res.txt");
@@ -99,7 +125,6 @@ int main()
   f << "Время выполнения: " << duration.count() << " миллисекунд." << endl;
   f.close();
 
-  /*
   // Ввод температуры в отдельный файл
   ofstream g("tempr.txt");
   g << fixed << setprecision(3);
@@ -109,6 +134,6 @@ int main()
     g << h * i << " " << setw(8) << setprecision(5) << T[i] << endl;
   }
   g.close();
-  */
+
   return 0;
 }
