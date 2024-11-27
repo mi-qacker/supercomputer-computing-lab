@@ -6,7 +6,7 @@ CXX = mpic++
 CXXFLAGS = -Wall -Wextra
 
 # number of processes
-NP = 4
+NP = 5
 
 # Исходный файл
 SRCS = src/main.cpp

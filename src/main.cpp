@@ -4,12 +4,19 @@
 #include <iomanip>
 #include <chrono>
 #include <thread>
+#include <mpi.h>
 
 using namespace std;
 using namespace std::chrono;
 
-int main()
+int main(int argc, char **argv)
 {
+  MPI_Init(&argc, &argv); // Инициализация MPI
+
+  int mpi_rank, mpi_size;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank); // Получение номера процесса
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size); // Получение числа процессов
+
   const int N = 10000;
   const int N_T = 10000;
   const double LAMBDA = 46;
@@ -26,12 +33,20 @@ int main()
   double Tl = 300;
   // температуру на границе х=L
   double Tr = 100;
+
+  // Определяем поле температуры в начальный момент времени
   vector<double> T;
+
+  // Инициализируем массив температуры
+  if (mpi_rank == 0)
+  {
+    T.resize(N, T0);
+  }
+  // Рассылаем начальные данные всем процессам
+  MPI_Bcast(T.data(), T.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   // Запоминаем начало времени
   auto start = high_resolution_clock::now();
-  // Определяем количество доступных потоков
-  int num_threads = std::thread::hardware_concurrency();
 
   // Определяем расчетный шаг сетки по пространственной координате
   double h = L / (N - 1);
@@ -42,98 +57,77 @@ int main()
   double bi = 2.0 * LAMBDA / (h * h) + RHO * C / tau;
   double ci = LAMBDA / (h * h);
 
-  // Определяем поле температуры в начальный момент времени
-  T.resize(N);
-  for (int i = 0; i < N; ++i)
-  {
-    T[i] = T0;
-  }
+  // Определяем количество временных шагов для каждого процесса
+  int steps_per_proc = N_T / mpi_size;
+  int start_step = mpi_rank * steps_per_proc;
+  int end_step = (mpi_rank == mpi_size - 1) ? N_T : start_step + steps_per_proc;
+
+  vector<double> alfa, beta;
+  alfa.resize(N);
+  beta.resize(N);
 
   // Проводим интегрирование
-  auto compute_temperature = [&](int start, int end)
+  for (int step = start_step; step < end_step; ++step)
   {
-    vector<double> alfa, beta;
-    alfa.resize(N);
-    beta.resize(N);
-
-    double time = start;
-    while (time < end)
+    // Начальные прогоночные коэффициенты
+    alfa[0] = 0.0;
+    beta[0] = Tl;
+    for (int i = 1; i < N - 1; ++i)
     {
-      time += tau;
-
-      // Начальные прогоночные коэффициенты
-      alfa[0] = 0.0;
-      beta[0] = Tl;
-
-      // Цикл для определения прогоночных коэффициентов
-      for (int i = 1; i < N - 1; ++i)
-      {
-        double fi = -RHO * C * T[i] / tau;
-
-        alfa[i] = ai / (bi - ci * alfa[i - 1]);
-        beta[i] = (ci * beta[i - 1] - fi) / (bi - ci * alfa[i - 1]);
-      }
-
-      // Значение температуры на правой границе
-      T[N - 1] = Tr;
-
-      // Определяем поле температуры
-      for (int i = N - 2; i >= 0; --i)
-      {
-        T[i] = alfa[i] * T[i + 1] + beta[i];
-      }
+      double fi = -RHO * C * T[i] / tau;
+      alfa[i] = ai / (bi - ci * alfa[i - 1]);
+      beta[i] = (ci * beta[i - 1] - fi) / (bi - ci * alfa[i - 1]);
     }
-  };
 
-  std::vector<std::thread> threads;
-  int chunk_size = (t_end) / num_threads; // Размер чанка для потоков
+    T[N - 1] = Tr; // Температура на правой границе
 
-  for (int i = 0; i < num_threads; ++i)
-  {
-    int start = i * chunk_size + 1;
-    int end = (i == num_threads - 1) ? t_end : start + chunk_size;
-    threads.emplace_back(compute_temperature, start, end);
+    for (int i = N - 2; i >= 0; --i)
+    {
+      T[i] = alfa[i] * T[i + 1] + beta[i];
+    }
   }
 
-  // Ожидаем завершения всех потоков
-  for (auto &t : threads)
+  // Собираем результаты на процессе 0
+  MPI_Gather(
+      T.data(), T.size(), MPI_DOUBLE,
+      T.data(), T.size(), MPI_DOUBLE,
+      0, MPI_COMM_WORLD);
+
+  if (mpi_rank == 0)
   {
-    t.join();
+    // Запоминаем конец времени
+    auto end = high_resolution_clock::now();
+    // Вычисляем время выполнения
+    auto duration = duration_cast<milliseconds>(end - start);
+    cout << duration.count() << endl;
+
+    // Вывод результата в файл
+    ofstream f("res.txt");
+    f << fixed << setprecision(4);
+    f << "Толщина пластины L = " << L << endl;
+    f << "Число узлов по координате N = " << N << endl;
+    f << "Коэффициент теплопроводности материала пластины lamda = " << LAMBDA << endl;
+    f << "Плотность материала пластины ro = " << RHO << endl;
+    f << "Теплоемкость материала пластины c = " << C << endl;
+    f << "Начальная температура T0 = " << T0 << endl;
+    f << "Температура на границе x = 0, Tl = " << Tl << endl;
+    f << "Температура на границе x = L, Tr = " << Tr << endl;
+    f << "Результат получен с шагом по координате h = " << h << endl;
+    f << "Результат получен с шагом по времени tau = " << tau << endl;
+    f << "Температурное поле в момент времени t = " << t_end << endl;
+    f << "Время выполнения: " << duration.count() << " миллисекунд." << endl;
+    f.close();
+
+    // Ввод температуры в отдельный файл
+    ofstream g("tempr.txt");
+    g << fixed << setprecision(3);
+    g << "Length" << " " << setw(8) << setprecision(5) << "Temperature" << endl;
+    for (int i = 0; i < N; ++i)
+    {
+      g << h * i << " " << setw(8) << setprecision(5) << T[i] << endl;
+    }
+    g.close();
   }
-  // threads.clear(); // очищаем массив потоков
-
-  // Запоминаем конец времени
-  auto end = high_resolution_clock::now();
-  // Вычисляем время выполнения
-  auto duration = duration_cast<milliseconds>(end - start);
-  cout << duration.count() << endl;
-
-  // Вывод результата в файл
-  ofstream f("res.txt");
-  f << fixed << setprecision(4);
-  f << "Толщина пластины L = " << L << endl;
-  f << "Число узлов по координате N = " << N << endl;
-  f << "Коэффициент теплопроводности материала пластины lamda = " << LAMBDA << endl;
-  f << "Плотность материала пластины ro = " << RHO << endl;
-  f << "Теплоемкость материала пластины c = " << C << endl;
-  f << "Начальная температура T0 = " << T0 << endl;
-  f << "Температура на границе x = 0, Tl = " << Tl << endl;
-  f << "Температура на границе x = L, Tr = " << Tr << endl;
-  f << "Результат получен с шагом по координате h = " << h << endl;
-  f << "Результат получен с шагом по времени tau = " << tau << endl;
-  f << "Температурное поле в момент времени t = " << t_end << endl;
-  f << "Время выполнения: " << duration.count() << " миллисекунд." << endl;
-  f.close();
-
-  // Ввод температуры в отдельный файл
-  ofstream g("tempr.txt");
-  g << fixed << setprecision(3);
-  g << "Length" << " " << setw(8) << setprecision(5) << "Temperature" << endl;
-  for (int i = 0; i < N; ++i)
-  {
-    g << h * i << " " << setw(8) << setprecision(5) << T[i] << endl;
-  }
-  g.close();
-
+  MPI_Finalize(); // Завершение работы MPI
   return 0;
 }
