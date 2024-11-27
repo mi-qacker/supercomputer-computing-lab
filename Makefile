@@ -2,8 +2,11 @@
 TARGET = main
 
 # Компилятор и флаги
-CXX = g++
+CXX = mpic++
 CXXFLAGS = -Wall -Wextra
+
+# number of processes
+NP = 4
 
 # Исходный файл
 SRCS = src/main.cpp
@@ -18,6 +21,10 @@ $(TARGET): $(SRCS)
 # Правило для запуска программы
 run: $(TARGET)
 	./$(TARGET)
+
+# Правило для запуска программы
+run-mpi: $(TARGET)
+	mpiexec -n $(NP) ./$(TARGET)
 
 # Очистка скомпилированных файлов
 clean:
